@@ -101,5 +101,5 @@ with g1:
 with g2:
     st.subheader("Top 10 Centros de Destino por Stock Real")
     top_centros = (
-        df.groupby("Nombre
+        df.groupby("Nombre Centro Destino", as_index=False)["STOCK REAL"]
     
