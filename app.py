@@ -200,3 +200,5 @@ st.dataframe(
     hide_index=True,
     column_config={
         "Stock Real": st.column_config.NumberColumn("Stock Real", format="%d")
+    }
+)
