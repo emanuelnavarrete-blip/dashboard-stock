@@ -102,4 +102,15 @@ with g2:
     st.subheader("Top 10 Centros de Destino por Stock Real")
     top_centros = (
         df.groupby("Nombre Centro Destino", as_index=False)["STOCK REAL"]
+        .sum()
+        .sort_values("STOCK REAL", ascending=False)
+        .head(10)
+    )
+    
+    barras_centro = alt.Chart(top_centros).mark_bar(color="#0F2C59", cornerRadiusEnd=4).encode(
+        x=alt.X("STOCK REAL:Q", title="Unidades", axis=alt.Axis(format=",.0f")),
+        y=alt.Y("Nombre Centro Destino:N", sort="-x", title=""),
+        tooltip=["Nombre Centro Destino", alt.Tooltip("STOCK REAL:Q", format=",.0f")]
+    )
+        df.groupby("Nombre Centro Destino", as_index=False)["STOCK REAL"]
     
