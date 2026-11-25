@@ -176,4 +176,35 @@ detalle_sku = detalle_sku.rename(columns={
 })
 
 detalle_sku = detalle_sku.sort_values(by="Stock Real", ascending=False)
-st.dataframe(detalle_sku, use_container_width=True, hide_index=True)
+
+# 1. Calcular el subtotal dinámico según los filtros aplicados
+subtotal_tabla = detalle_sku["Stock Real"].sum()
+
+# 2. Mostrar recuadro resumen justo encima de la tabla
+st.info(f"**Subtotal Stock Real (según filtros aplicados):** {subtotal_tabla:,.0f} Unidades")
+
+# 3. Agregar fila de TOTAL al final de la tabla
+fila_total = pd.DataFrame([{
+    "Tienda / CEDI": "TOTAL GENERAL",
+    "SKU": "",
+    "Producto": "",
+    "Stock Real": subtotal_tabla
+}])
+
+detalle_con_total = pd.concat([detalle_sku, fila_total], ignore_index=True)
+
+# 4. Función para resaltar la fila TOTAL
+def resaltar_total(fila):
+    if fila["Tienda / CEDI"] == "TOTAL GENERAL":
+        return ["background-color: #DBEAFE; font-weight: bold; color: #0F2C59"] * len(fila)
+    return [""] * len(fila)
+
+# 5. Mostrar la tabla con estilo y formato
+st.dataframe(
+    detalle_con_total.style.apply(resaltar_total, axis=1),
+    use_container_width=True,
+    hide_index=True,
+    column_config={
+        "Stock Real": st.column_config.NumberColumn("Stock Real", format="%d")
+    }
+)
