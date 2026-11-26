@@ -31,8 +31,65 @@ st.title("📊 Control Corporativo de Stock Real")
 
 @st.cache_data
 def cargar_datos():
-    datos = pd.read_excel("STOCK REAL 23.xlsx", sheet_name="Stock")
-    datos.columns = datos.columns.str.strip()
+    # 1. Cargar STOCK REAL 26.xlsx
+    try:
+        stock = pd.read_excel("STOCK REAL 26.xlsx", sheet_name="Stock")
+    except Exception:
+        stock = pd.read_excel("STOCK REAL 26.xlsx")
+    stock.columns = stock.columns.str.strip()
+
+    # 2. Cargar MAESTRO 24.xlsx
+    maestro = pd.read_excel("MAESTRO 24.xlsx")
+    maestro.columns = maestro.columns.str.strip()
+
+    # Detectar columna de SKU en STOCK y en MAESTRO
+    posibles_sku_stock = [c for c in stock.columns if "COD" in c.upper() or "SKU" in c.upper()]
+    col_sku_stock = posibles_sku_stock[0] if posibles_sku_stock else "COD. PRODUCTO"
+
+    posibles_sku_maestro = [c for c in maestro.columns if "COD" in c.upper() or "SKU" in c.upper()]
+    col_sku_maestro = posibles_sku_maestro[0] if posibles_sku_maestro else col_sku_stock
+
+    # Normalizar llaves SKU para cruzar sin errores
+    stock[col_sku_stock] = stock[col_sku_stock].astype(str).str.strip()
+    maestro[col_sku_maestro] = maestro[col_sku_maestro].astype(str).str.strip()
+
+    if col_sku_maestro != col_sku_stock:
+        maestro = maestro.rename(columns={col_sku_maestro: col_sku_stock})
+
+    # Limpiar UT y dejar un registro por SKU en el Maestro
+    col_ut = [c for c in maestro.columns if c.strip().upper() == "UT"][0]
+    maestro[col_ut] = pd.to_numeric(maestro[col_ut], errors="coerce").fillna(1)
+    maestro_skus = maestro[[col_sku_stock, col_ut]].drop_duplicates(subset=[col_sku_stock])
+
+    # Cruzar Stock con Maestro para traer UT
+    datos = pd.merge(stock, maestro_skus, on=col_sku_stock, how="left")
+    datos[col_ut] = pd.to_numeric(datos[col_ut], errors="coerce").fillna(1)
+
+    # Detectar columna de stock base (usa STOCK TOTAL si existe, sino STOCK REAL)
+    if "STOCK TOTAL" in datos.columns:
+        col_stock_base = "STOCK TOTAL"
+    elif "STOCK REAL" in datos.columns:
+        col_stock_base = "STOCK REAL"
+    else:
+        col_stock_base = [c for c in datos.columns if "STOCK" in c.upper()][0]
+
+    # Detectar columnas de tipo/centro para identificar CEDI
+    cols_destino = [c for c in datos.columns if "DESTINO" in c.upper() or "CENTRO" in c.upper() or "TIPO" in c.upper()]
+    es_cedi = pd.Series(False, index=datos.index)
+    for c in cols_destino:
+        es_cedi = es_cedi | datos[c].astype(str).str.upper().str.contains("CEDI", na=False)
+
+    stock_num = pd.to_numeric(datos[col_stock_base], errors="coerce").fillna(0)
+
+    # Solo para CEDI: Stock * UT; para Tiendas/otros: dejar tal cual
+    datos["STOCK_FINAL"] = stock_num
+    datos.loc[es_cedi, "STOCK_FINAL"] = stock_num.loc[es_cedi] * datos.loc[es_cedi, col_ut]
+
+    # Estandarizar "STOCK REAL" en datos para que el resto del dashboard use el valor calculado
+    datos["STOCK REAL"] = datos["STOCK_FINAL"]
+    if col_sku_stock != "COD. PRODUCTO":
+        datos["COD. PRODUCTO"] = datos[col_sku_stock]
+
     return datos
 
 df = cargar_datos()
