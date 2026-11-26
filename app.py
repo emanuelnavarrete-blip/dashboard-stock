@@ -8,8 +8,10 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 import pandas as pd
 import streamlit as st
 
+TITULO_REPORTE = "REPORTE STOCK - VENTA - CANTIDADES VENDIDAS AL 25"
+
 st.set_page_config(
-    page_title="Reporte Gerencial de Inventario y Ventas",
+    page_title=TITULO_REPORTE,
     page_icon="📊",
     layout="wide",
 )
@@ -22,13 +24,12 @@ GRIS_TEXTO = "#1F2933"
 GRIS_SUB = "#52606D"
 FONDO_APP = "#F4F6F8"
 FONDO_TARJETA = "#FFFFFF"
-FONDO_TOTAL = "#E6ECF2"
 BORDE_LINEA = "#D9E2EC"
 
 st.markdown(
     f"""
     <style>
-        .stApp {{
+        html, body, .stApp {{
             background-color: {FONDO_APP};
             color: {GRIS_TEXTO};
         }}
@@ -42,15 +43,10 @@ st.markdown(
         }}
         .encabezado-gerencia h1 {{
             color: #FFFFFF;
-            font-size: 1.65rem;
+            font-size: 1.55rem;
             font-weight: 600;
             letter-spacing: -0.01em;
-            margin: 0 0 4px 0;
-        }}
-        .encabezado-gerencia p {{
-            color: #CBD2D9;
             margin: 0;
-            font-size: 0.92rem;
         }}
         div[data-testid="stMetric"] {{
             background-color: {FONDO_TARJETA};
@@ -71,6 +67,30 @@ st.markdown(
         section[data-testid="stSidebar"] {{
             background-color: #FFFFFF;
             border-right: 1px solid {BORDE_LINEA};
+        }}
+        /* Traducir "Choose options" en multiselect a español */
+        div[data-baseweb="select"] span[data-testid="stSearchInput"] input::placeholder {{
+            color: transparent !important;
+        }}
+        div[data-baseweb="select"] > div > div:first-child {{
+            position: relative;
+        }}
+        div[data-baseweb="select"] div:contains("Choose options") {{
+            font-size: 0 !important;
+        }}
+        div[data-baseweb="select"] div:has(> span):not(:has(span[data-baseweb="tag"])) span {{
+            visibility: hidden;
+            position: relative;
+        }}
+        div[data-baseweb="select"] div:has(> span):not(:has(span[data-baseweb="tag"])) span::after {{
+            content: "Seleccione opciones";
+            visibility: visible;
+            position: absolute;
+            left: 0;
+            top: 0;
+            color: #616E7C;
+            font-size: 0.92rem;
+            white-space: nowrap;
         }}
     </style>
     """,
@@ -122,8 +142,10 @@ def _buscar_columna(
 @st.cache_data(show_spinner="Cargando información...")
 def cargar_datos(ruta_excel: str = "STOCK REAL 26.xlsx") -> tuple[pd.DataFrame, str, str]:
     xl = pd.ExcelFile(ruta_excel, engine="openpyxl")
-    hoja = "STOCK REAL 26" if "STOCK REAL 26" in xl.sheet_names else (
-        "Stock" if "Stock" in xl.sheet_names else xl.sheet_names[0]
+    hoja = (
+        "STOCK REAL 26"
+        if "STOCK REAL 26" in xl.sheet_names
+        else ("Stock" if "Stock" in xl.sheet_names else xl.sheet_names[0])
     )
     df = pd.read_excel(ruta_excel, sheet_name=hoja, engine="openpyxl")
     df.columns = [str(c).strip() for c in df.columns]
@@ -143,14 +165,21 @@ def cargar_datos(ruta_excel: str = "STOCK REAL 26.xlsx") -> tuple[pd.DataFrame, 
     )
     col_fact = _buscar_columna(
         list(df.columns),
-        ["FACTURACION SIN IGV AL 25", "FACTURACIÓN SIN IGV AL 25", "FACTURACION", "FACTURACIÓN"],
-        ["FACTURACION", "FACTURACIÓN"],
+        [
+            "FACTURACION SIN IGV AL 25",
+            "FACTURACIÓN SIN IGV AL 25",
+            "VENTA",
+            "FACTURACION",
+            "FACTURACIÓN",
+        ],
+        ["FACTURACION", "FACTURACIÓN", "VENTA"],
     )
     col_cant_vta = _buscar_columna(
         list(df.columns),
         [
             "CANTIDADES VENDIDAS AL 25",
             "CANTIDAD VENDIDA AL 25",
+            "CANTIDAD VENDIDAS AL 25",
             "CANTIDADES VENDIDAS",
             "CANTIDAD VENDIDA",
             "UNIDADES VENDIDAS AL 25",
@@ -347,7 +376,7 @@ def generar_excel_con_tabla(
 
         ultima_letra = get_column_letter(n_cols)
         ref_tabla = f"A1:{ultima_letra}{ultima_fila}"
-        nombre_limpio = re.sub(r"[^A-Za-z0-9_]", "_", "TablaStockGerencia")
+        nombre_limpio = re.sub(r"[^A-Za-z0-9_]", "_", "TablaStock")
         tabla = Table(displayName=nombre_limpio, ref=ref_tabla)
         estilo = TableStyleInfo(
             name="TableStyleMedium2",
@@ -375,10 +404,9 @@ def generar_excel_con_tabla(
 
 
 st.markdown(
-    """
+    f"""
     <div class="encabezado-gerencia">
-        <h1>Reporte Gerencial de Inventario, Ventas y Facturación</h1>
-        <p>Seguimiento de stock real, cantidades vendidas al 25 y facturación sin IGV al 25 por proveedor y SKU</p>
+        <h1>{TITULO_REPORTE}</h1>
     </div>
     """,
     unsafe_allow_html=True,
@@ -397,18 +425,21 @@ proveedores_sel = st.sidebar.multiselect(
     "Proveedor",
     options=sorted(df["PROVEEDOR"].unique()),
     default=[],
+    placeholder="Seleccione opciones",
 )
 
 tipos_sel = st.sidebar.multiselect(
     "Tipo de destino",
     options=sorted(df["TIPO DE DESTINO"].unique()),
     default=[],
+    placeholder="Seleccione opciones",
 )
 
 estados_sel = st.sidebar.multiselect(
     "Estado",
     options=sorted(df["ESTADO"].unique()),
     default=[],
+    placeholder="Seleccione opciones",
 )
 
 df_base_centros = df.copy()
@@ -423,6 +454,7 @@ centros_sel = st.sidebar.multiselect(
     "Centro destino",
     options=sorted(df_base_centros["Nombre Centro Destino"].unique()),
     default=[],
+    placeholder="Seleccione opciones",
 )
 
 sku_buscar = st.sidebar.text_input(
@@ -536,7 +568,7 @@ else:
     if vista_tabla.startswith("Consolidado"):
         tabla_base = df_sku
         cols_sumar_xls = ["STOCK REAL", nombre_cant, nombre_fact]
-        nombre_xls = "Reporte_Gerencia_Consolidado_SKU.xlsx"
+        nombre_xls = "REPORTE_STOCK_VENTA_CANTIDADES_25.xlsx"
         st.caption(
             f"Consolidado por SKU: **STOCK REAL** suma todos los registros del SKU; "
             f"**{nombre_cant}** y **{nombre_fact}** se asignan por SKU sin sumar duplicados."
@@ -549,7 +581,7 @@ else:
             }
         )
         cols_sumar_xls = ["STOCK REAL"]
-        nombre_xls = "Reporte_Gerencia_Detalle_Filas.xlsx"
+        nombre_xls = "REPORTE_STOCK_DETALLE_FILAS.xlsx"
         st.caption(
             f"Detalle por fila: la tabla en Excel suma **STOCK REAL**, mientras **{nombre_cant}** y "
             f"**{nombre_fact}** no se suman en el total para evitar duplicidades por SKU."
