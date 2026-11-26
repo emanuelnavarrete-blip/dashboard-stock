@@ -1,8 +1,9 @@
+from datetime import datetime
 from io import BytesIO
 import re
 import altair as alt
 import openpyxl
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 import pandas as pd
@@ -68,16 +69,11 @@ st.markdown(
             background-color: #FFFFFF;
             border-right: 1px solid {BORDE_LINEA};
         }}
+        /* Ocultar barra flotante de dataframe que muestra "Download as CSV" */
+        [data-testid="stElementToolbar"] {{
+            display: none !important;
+        }}
         /* Traducir "Choose options" en multiselect a español */
-        div[data-baseweb="select"] span[data-testid="stSearchInput"] input::placeholder {{
-            color: transparent !important;
-        }}
-        div[data-baseweb="select"] > div > div:first-child {{
-            position: relative;
-        }}
-        div[data-baseweb="select"] div:contains("Choose options") {{
-            font-size: 0 !important;
-        }}
         div[data-baseweb="select"] div:has(> span):not(:has(span[data-baseweb="tag"])) span {{
             visibility: hidden;
             position: relative;
@@ -315,74 +311,139 @@ def generar_excel_con_tabla(
     cols_sumar_excel: list[str],
     cols_moneda: list[str],
     cols_numero: list[str],
+    resumen_filtros: str,
+    nota_regla: str,
 ) -> bytes:
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "Reporte Stock"
+    ws.title = "Reporte Gerencia"
+    ws.views.sheetView[0].showGridLines = True
 
     encabezados = list(df_export.columns)
-    ws.append(encabezados)
+    n_cols = max(len(encabezados), 1)
+    ultima_letra = get_column_letter(n_cols)
+
+    # Encabezado ejecutivo en filas 1-3
+    ws.merge_cells(f"A1:{ultima_letra}1")
+    ws["A1"] = TITULO_REPORTE
+    ws["A1"].font = Font(name="Calibri", size=13, bold=True, color="FFFFFF")
+    ws["A1"].fill = PatternFill(start_color="162A3E", end_color="162A3E", fill_type="solid")
+    ws["A1"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws.row_dimensions[1].height = 28
+
+    ws.merge_cells(f"A2:{ultima_letra}2")
+    ws["A2"] = f"Fecha de generación: {datetime.now().strftime('%d/%m/%Y %H:%M')}  |  Filtros: {resumen_filtros}"
+    ws["A2"].font = Font(name="Calibri", size=9, italic=True, color="1F2933")
+    ws["A2"].fill = PatternFill(start_color="E6ECF2", end_color="E6ECF2", fill_type="solid")
+    ws["A2"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws.row_dimensions[2].height = 20
+
+    ws.merge_cells(f"A3:{ultima_letra}3")
+    ws["A3"] = f"Nota: {nota_regla}"
+    ws["A3"].font = Font(name="Calibri", size=9, color="52606D")
+    ws["A3"].alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws.row_dimensions[3].height = 18
+
+    fila_encabezado = 5
+    ws.row_dimensions[fila_encabezado].height = 24
 
     fill_header = PatternFill(start_color="162A3E", end_color="162A3E", fill_type="solid")
-    font_header = Font(color="FFFFFF", bold=True, size=10)
+    font_header = Font(name="Calibri", color="FFFFFF", bold=True, size=10)
+    borde_suave = Border(
+        left=Side(style="thin", color="D9E2EC"),
+        right=Side(style="thin", color="D9E2EC"),
+        top=Side(style="thin", color="D9E2EC"),
+        bottom=Side(style="thin", color="D9E2EC"),
+    )
 
-    for col_idx in range(1, len(encabezados) + 1):
-        celda = ws.cell(row=1, column=col_idx)
+    for col_idx, col_name in enumerate(encabezados, start=1):
+        celda = ws.cell(row=fila_encabezado, column=col_idx, value=col_name)
         celda.fill = fill_header
         celda.font = font_header
-        celda.alignment = Alignment(horizontal="center", vertical="center")
-
-    for row in df_export.itertuples(index=False, name=None):
-        ws.append(list(row))
+        celda.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        celda.border = borde_suave
 
     n_filas = len(df_export)
-    n_cols = len(encabezados)
-    ultima_fila = n_filas + 1
+    primera_fila_datos = fila_encabezado + 1
+    ultima_fila_datos = fila_encabezado + n_filas
+
+    for offset, row in enumerate(df_export.itertuples(index=False, name=None)):
+        r = primera_fila_datos + offset
+        fill_zebra = (
+            PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
+            if offset % 2 == 1
+            else PatternFill(fill_type=None)
+        )
+        for col_idx, val in enumerate(row, start=1):
+            col_name = encabezados[col_idx - 1]
+            if col_name in cols_moneda or col_name in cols_numero:
+                try:
+                    valor_limpio = float(val) if val is not None and str(val).strip() != "" else 0.0
+                except (ValueError, TypeError):
+                    valor_limpio = 0.0
+            else:
+                valor_limpio = "" if val is None else str(val)
+
+            celda = ws.cell(row=r, column=col_idx, value=valor_limpio)
+            celda.font = Font(name="Calibri", size=10, color="1F2933")
+            celda.border = borde_suave
+            if fill_zebra.fill_type:
+                celda.fill = fill_zebra
+
+            if col_name in cols_moneda:
+                celda.number_format = '"S/ "#,##0.00'
+                celda.alignment = Alignment(horizontal="right", vertical="center")
+            elif col_name in cols_numero:
+                celda.number_format = "#,##0.00"
+                celda.alignment = Alignment(horizontal="right", vertical="center")
+            else:
+                celda.alignment = Alignment(horizontal="left", vertical="center")
 
     if n_filas > 0:
-        for c_name in cols_moneda:
-            if c_name in encabezados:
-                c_idx = encabezados.index(c_name) + 1
-                for r in range(2, ultima_fila + 1):
-                    ws.cell(row=r, column=c_idx).number_format = '"S/ "#,##0.00'
-
-        for c_name in cols_numero:
-            if c_name in encabezados:
-                c_idx = encabezados.index(c_name) + 1
-                for r in range(2, ultima_fila + 1):
-                    ws.cell(row=r, column=c_idx).number_format = "#,##0.00"
-
         cols_sumar_validas = [c for c in cols_sumar_excel if c in encabezados]
         if cols_sumar_validas:
-            fila_total = ultima_fila + 1
-            ws.cell(row=fila_total, column=1, value="TOTAL").font = Font(
-                bold=True, color="162A3E"
+            fila_total = ultima_fila_datos + 1
+            ws.row_dimensions[fila_total].height = 22
+            fill_total = PatternFill(start_color="E6ECF2", end_color="E6ECF2", fill_type="solid")
+            font_total = Font(name="Calibri", size=10, bold=True, color="162A3E")
+            borde_total = Border(
+                top=Side(style="thin", color="162A3E"),
+                bottom=Side(style="double", color="162A3E"),
+                left=Side(style="thin", color="D9E2EC"),
+                right=Side(style="thin", color="D9E2EC"),
             )
+
+            for col_idx in range(1, n_cols + 1):
+                c_total = ws.cell(row=fila_total, column=col_idx)
+                c_total.fill = fill_total
+                c_total.font = font_total
+                c_total.border = borde_total
+
+            ws.cell(row=fila_total, column=1, value="TOTAL").alignment = Alignment(
+                horizontal="left", vertical="center"
+            )
+
             for c_name in cols_sumar_validas:
                 c_idx = encabezados.index(c_name) + 1
                 col_letra = get_column_letter(c_idx)
                 celda_total = ws.cell(
                     row=fila_total,
                     column=c_idx,
-                    value=f"=SUM({col_letra}2:{col_letra}{ultima_fila})",
+                    value=f"=SUM({col_letra}{primera_fila_datos}:{col_letra}{ultima_fila_datos})",
                 )
-                celda_total.font = Font(bold=True, color="162A3E")
                 celda_total.number_format = (
                     '"S/ "#,##0.00' if c_name in cols_moneda else "#,##0.00"
                 )
-                celda_total.fill = PatternFill(
-                    start_color="E6ECF2", end_color="E6ECF2", fill_type="solid"
-                )
+                celda_total.alignment = Alignment(horizontal="right", vertical="center")
 
-        ultima_letra = get_column_letter(n_cols)
-        ref_tabla = f"A1:{ultima_letra}{ultima_fila}"
-        nombre_limpio = re.sub(r"[^A-Za-z0-9_]", "_", "TablaStock")
+        ref_tabla = f"A{fila_encabezado}:{ultima_letra}{ultima_fila_datos}"
+        nombre_limpio = re.sub(r"[^A-Za-z0-9_]", "_", "TablaReporteGerencia")
         tabla = Table(displayName=nombre_limpio, ref=ref_tabla)
         estilo = TableStyleInfo(
             name="TableStyleMedium2",
             showFirstColumn=False,
             showLastColumn=False,
-            showRowStripes=True,
+            showRowStripes=False,
             showColumnStripes=False,
         )
         tabla.tableStyleInfo = estilo
@@ -391,11 +452,11 @@ def generar_excel_con_tabla(
     for col_idx in range(1, n_cols + 1):
         letra = get_column_letter(col_idx)
         max_len = len(str(encabezados[col_idx - 1]))
-        for r in range(2, min(ultima_fila + 1, 502)):
+        for r in range(primera_fila_datos, min(ultima_fila_datos + 1, primera_fila_datos + 300)):
             val_str = str(ws.cell(row=r, column=col_idx).value or "")
             if len(val_str) > max_len:
                 max_len = len(val_str)
-        ws.column_dimensions[letra].width = min(max(max_len + 4, 15), 45)
+        ws.column_dimensions[letra].width = min(max(max_len + 5, 16), 46)
 
     salida = BytesIO()
     wb.save(salida)
@@ -492,6 +553,21 @@ if sku_buscar:
 if solo_con_stock:
     df_filtrado = df_filtrado[df_filtrado["STOCK REAL"] != 0]
 
+partes_filtro = []
+if proveedores_sel:
+    partes_filtro.append(f"Proveedor: {', '.join(proveedores_sel[:3])}{'...' if len(proveedores_sel) > 3 else ''}")
+if tipos_sel:
+    partes_filtro.append(f"Tipo Destino: {', '.join(tipos_sel)}")
+if estados_sel:
+    partes_filtro.append(f"Estado: {', '.join(estados_sel)}")
+if centros_sel:
+    partes_filtro.append(f"Centro: {', '.join(centros_sel[:3])}{'...' if len(centros_sel) > 3 else ''}")
+if sku_buscar:
+    partes_filtro.append(f"Búsqueda: {sku_buscar}")
+if solo_con_stock:
+    partes_filtro.append("Stock distinto de 0")
+resumen_filtros_txt = " | ".join(partes_filtro) if partes_filtro else "Todos los registros"
+
 df_sku = consolidar_por_sku(df_filtrado, nombre_fact, nombre_cant)
 
 # KPIs principales
@@ -569,6 +645,10 @@ else:
         tabla_base = df_sku
         cols_sumar_xls = ["STOCK REAL", nombre_cant, nombre_fact]
         nombre_xls = "REPORTE_STOCK_VENTA_CANTIDADES_25.xlsx"
+        nota_regla_txt = (
+            f"Consolidado por SKU: STOCK REAL suma todos los registros del SKU; "
+            f"{nombre_cant} y {nombre_fact} se asignan por SKU sin sumar duplicados."
+        )
         st.caption(
             f"Consolidado por SKU: **STOCK REAL** suma todos los registros del SKU; "
             f"**{nombre_cant}** y **{nombre_fact}** se asignan por SKU sin sumar duplicados."
@@ -582,6 +662,10 @@ else:
         )
         cols_sumar_xls = ["STOCK REAL"]
         nombre_xls = "REPORTE_STOCK_DETALLE_FILAS.xlsx"
+        nota_regla_txt = (
+            f"Detalle por fila: la tabla suma STOCK REAL, mientras {nombre_cant} y "
+            f"{nombre_fact} no se suman en el total para evitar duplicidades por SKU."
+        )
         st.caption(
             f"Detalle por fila: la tabla en Excel suma **STOCK REAL**, mientras **{nombre_cant}** y "
             f"**{nombre_fact}** no se suman en el total para evitar duplicidades por SKU."
@@ -592,6 +676,8 @@ else:
         cols_sumar_excel=cols_sumar_xls,
         cols_moneda=cols_moneda_lista,
         cols_numero=cols_numero_lista,
+        resumen_filtros=resumen_filtros_txt,
+        nota_regla=nota_regla_txt,
     )
     st.download_button(
         label="Exportar a Excel (Tabla y Fórmula SUMA)",
