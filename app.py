@@ -1,7 +1,12 @@
+import io
 import os
 import streamlit as st
 import pandas as pd
 import altair as alt
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 st.set_page_config(page_title="Inventario | Stock Real", layout="wide")
 
@@ -47,6 +52,119 @@ COLOR_PRINCIPAL = "#1E3A34"
 PALETA_DONA = ["#1E3A34", "#8C7A5B", "#C5BFA9"]
 
 
+def generar_excel_tabla(df_detalle: pd.DataFrame, subtotal_val: float) -> bytes:
+    """Genera un archivo .xlsx con formato Tabla oficial de Excel y fórmula de total."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Detalle Stock Real"
+
+    # Título y contexto
+    ws["A1"] = "Detalle por centro y SKU"
+    ws["A1"].font = Font(name="Calibri", size=14, bold=True, color="182E26")
+    ws["A2"] = f"Subtotal según filtros: {subtotal_val:,.0f} unidades"
+    ws["A2"].font = Font(name="Calibri", size=10, italic=True, color="5C615E")
+
+    fila_encabezado = 4
+    encabezados = ["Centro / Tienda", "SKU", "Producto", "Stock Real"]
+
+    header_fill = PatternFill(start_color="182E26", end_color="182E26", fill_type="solid")
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    borde_suave = Side(style="thin", color="D8D5CC")
+    celda_borde = Border(left=borde_suave, right=borde_suave, top=borde_suave, bottom=borde_suave)
+
+    for col_idx, titulo in enumerate(encabezados, start=1):
+        celda = ws.cell(row=fila_encabezado, column=col_idx, value=titulo)
+        celda.fill = header_fill
+        celda.font = header_font
+        celda.alignment = Alignment(
+            horizontal="right" if col_idx == 4 else "left",
+            vertical="center"
+        )
+        celda.border = celda_borde
+
+    ws.row_dimensions[fila_encabezado].height = 24
+
+    # Filas de datos
+    filas_limpias = df_detalle.reset_index(drop=True)
+    for idx, row in filas_limpias.iterrows():
+        r = fila_encabezado + 1 + idx
+        centro = "" if pd.isna(row["Centro / Tienda"]) else str(row["Centro / Tienda"])
+        sku = "" if pd.isna(row["SKU"]) else str(row["SKU"])
+        producto = "" if pd.isna(row["Producto"]) else str(row["Producto"])
+        stock_val = float(pd.to_numeric(row["Stock Real"], errors="coerce") or 0)
+
+        c1 = ws.cell(row=r, column=1, value=centro)
+        c2 = ws.cell(row=r, column=2, value=sku)
+        c3 = ws.cell(row=r, column=3, value=producto)
+        c4 = ws.cell(row=r, column=4, value=stock_val)
+
+        c1.alignment = Alignment(horizontal="left", vertical="center")
+        c2.alignment = Alignment(horizontal="left", vertical="center")
+        c3.alignment = Alignment(horizontal="left", vertical="center")
+        c4.alignment = Alignment(horizontal="right", vertical="center")
+        c4.number_format = "#,##0"
+
+        for c in (c1, c2, c3, c4):
+            c.font = Font(name="Calibri", size=10, color="1C1E1D")
+            c.border = celda_borde
+
+    ultima_fila_datos = fila_encabezado + len(filas_limpias)
+
+    # Crear Tabla oficial de Excel si hay al menos 1 fila de datos
+    if len(filas_limpias) >= 1:
+        ref_tabla = f"A{fila_encabezado}:D{ultima_fila_datos}"
+        tabla = Table(displayName="TablaStockReal", ref=ref_tabla)
+        estilo = TableStyleInfo(
+            name="TableStyleMedium9",
+            showFirstColumn=False,
+            showLastColumn=False,
+            showRowStripes=True,
+            showColumnStripes=False
+        )
+        tabla.tableStyleInfo = estilo
+        ws.add_table(tabla)
+
+    # Fila TOTAL GENERAL con fórmula dinámica en Excel
+    fila_total = ultima_fila_datos + 1
+    ws.cell(row=fila_total, column=1, value="TOTAL GENERAL")
+    ws.cell(row=fila_total, column=2, value="")
+    ws.cell(row=fila_total, column=3, value="")
+    celda_total = ws.cell(
+        row=fila_total,
+        column=4,
+        value=f"=SUM(D{fila_encabezado + 1}:D{ultima_fila_datos})"
+    )
+    celda_total.number_format = "#,##0"
+
+    total_fill = PatternFill(start_color="EAE7DE", end_color="EAE7DE", fill_type="solid")
+    total_font = Font(name="Calibri", size=11, bold=True, color="182E26")
+    borde_total = Border(
+        top=Side(style="thin", color="182E26"),
+        bottom=Side(style="double", color="182E26"),
+        left=borde_suave,
+        right=borde_suave
+    )
+
+    for col_idx in range(1, 5):
+        ct = ws.cell(row=fila_total, column=col_idx)
+        ct.fill = total_fill
+        ct.font = total_font
+        ct.border = borde_total
+        ct.alignment = Alignment(horizontal="right" if col_idx == 4 else "left", vertical="center")
+
+    # Ajustar anchos de columna
+    anchos = {1: 28, 2: 22, 3: 48, 4: 18}
+    for col_idx, ancho in anchos.items():
+        ws.column_dimensions[get_column_letter(col_idx)].width = ancho
+
+    ws.freeze_panes = f"A{fila_encabezado + 1}"
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output.getvalue()
+
+
 @st.cache_data
 def cargar_datos():
     archivo = "STOCK REAL 26.xlsx" if os.path.exists("STOCK REAL 26.xlsx") else "STOCK REAL 23.xlsx"
@@ -56,7 +174,6 @@ def cargar_datos():
         datos = pd.read_excel(archivo)
     datos.columns = datos.columns.astype(str).str.strip()
 
-    # Detectar columna de stock (STOCK REAL, STOCK TOTAL o cualquiera con STOCK)
     if "STOCK REAL" not in datos.columns:
         candidatas_stock = [c for c in datos.columns if "STOCK" in c.upper()]
         if candidatas_stock:
@@ -217,6 +334,14 @@ detalle_sku = detalle_sku.sort_values(by="Stock Real", ascending=False)
 subtotal_tabla = detalle_sku["Stock Real"].sum()
 
 st.info(f"**Subtotal según filtros:** {subtotal_tabla:,.0f} unidades")
+
+excel_bytes = generar_excel_tabla(detalle_sku, subtotal_tabla)
+st.download_button(
+    label="Descargar tabla en Excel (.xlsx)",
+    data=excel_bytes,
+    file_name="detalle_stock_real.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
 
 fila_total = pd.DataFrame([{
     "Centro / Tienda": "TOTAL GENERAL",
