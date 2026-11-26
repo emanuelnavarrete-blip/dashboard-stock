@@ -31,41 +31,34 @@ st.title("📊 Control Corporativo de Stock Real")
 
 @st.cache_data
 def cargar_datos():
-    # 1. Cargar STOCK REAL 26.xlsx
     try:
         stock = pd.read_excel("STOCK REAL 26.xlsx", sheet_name="Stock")
     except Exception:
         stock = pd.read_excel("STOCK REAL 26.xlsx")
     stock.columns = stock.columns.str.strip()
 
-    # 2. Cargar MAESTRO 24.xlsx
     maestro = pd.read_excel("MAESTRO 24.xlsx")
     maestro.columns = maestro.columns.str.strip()
 
-    # Detectar columna de SKU en STOCK y en MAESTRO
     posibles_sku_stock = [c for c in stock.columns if "COD" in c.upper() or "SKU" in c.upper()]
     col_sku_stock = posibles_sku_stock[0] if posibles_sku_stock else "COD. PRODUCTO"
 
     posibles_sku_maestro = [c for c in maestro.columns if "COD" in c.upper() or "SKU" in c.upper()]
     col_sku_maestro = posibles_sku_maestro[0] if posibles_sku_maestro else col_sku_stock
 
-    # Normalizar llaves SKU para cruzar sin errores
     stock[col_sku_stock] = stock[col_sku_stock].astype(str).str.strip()
     maestro[col_sku_maestro] = maestro[col_sku_maestro].astype(str).str.strip()
 
     if col_sku_maestro != col_sku_stock:
         maestro = maestro.rename(columns={col_sku_maestro: col_sku_stock})
 
-    # Limpiar UT y dejar un registro por SKU en el Maestro
     col_ut = [c for c in maestro.columns if c.strip().upper() == "UT"][0]
     maestro[col_ut] = pd.to_numeric(maestro[col_ut], errors="coerce").fillna(1)
     maestro_skus = maestro[[col_sku_stock, col_ut]].drop_duplicates(subset=[col_sku_stock])
 
-    # Cruzar Stock con Maestro para traer UT
     datos = pd.merge(stock, maestro_skus, on=col_sku_stock, how="left")
     datos[col_ut] = pd.to_numeric(datos[col_ut], errors="coerce").fillna(1)
 
-    # Detectar columna de stock base (usa STOCK TOTAL si existe, sino STOCK REAL)
     if "STOCK TOTAL" in datos.columns:
         col_stock_base = "STOCK TOTAL"
     elif "STOCK REAL" in datos.columns:
@@ -73,7 +66,6 @@ def cargar_datos():
     else:
         col_stock_base = [c for c in datos.columns if "STOCK" in c.upper()][0]
 
-    # Detectar columnas de tipo/centro para identificar CEDI
     cols_destino = [c for c in datos.columns if "DESTINO" in c.upper() or "CENTRO" in c.upper() or "TIPO" in c.upper()]
     es_cedi = pd.Series(False, index=datos.index)
     for c in cols_destino:
@@ -81,11 +73,9 @@ def cargar_datos():
 
     stock_num = pd.to_numeric(datos[col_stock_base], errors="coerce").fillna(0)
 
-    # Solo para CEDI: Stock * UT; para Tiendas/otros: dejar tal cual
     datos["STOCK_FINAL"] = stock_num
     datos.loc[es_cedi, "STOCK_FINAL"] = stock_num.loc[es_cedi] * datos.loc[es_cedi, col_ut]
 
-    # Estandarizar "STOCK REAL" en datos para que el resto del dashboard use el valor calculado
     datos["STOCK REAL"] = datos["STOCK_FINAL"]
     if col_sku_stock != "COD. PRODUCTO":
         datos["COD. PRODUCTO"] = datos[col_sku_stock]
@@ -94,7 +84,6 @@ def cargar_datos():
 
 df = cargar_datos()
 
-# Detectar columnas dinámicamente
 col_tipo = [c for c in df.columns if c.upper().startswith("TIPO DE")][0]
 col_producto = [c for c in df.columns if c.upper().startswith("NOM. P")][0]
 
@@ -143,7 +132,7 @@ g1, g2 = st.columns([1, 1.6])
 with g1:
     st.subheader("Distribución: CEDI vs. Tiendas")
     dist_tipo = df.groupby(col_tipo, as_index=False)["STOCK REAL"].sum()
-    
+
     dona = alt.Chart(dist_tipo).mark_arc(innerRadius=65, outerRadius=115).encode(
         theta=alt.Theta("STOCK REAL:Q"),
         color=alt.Color(
@@ -163,7 +152,7 @@ with g2:
         .sort_values("STOCK REAL", ascending=False)
         .head(10)
     )
-    
+
     barras_centro = alt.Chart(top_centros).mark_bar(color="#0F2C59", cornerRadiusEnd=4).encode(
         x=alt.X("STOCK REAL:Q", title="Unidades", axis=alt.Axis(format=",.0f")),
         y=alt.Y("Nombre Centro Destino:N", sort="-x", title=""),
@@ -185,7 +174,7 @@ with g3:
         .sort_values("STOCK REAL", ascending=False)
         .head(10)
     )
-    
+
     barras_prod = alt.Chart(top_prod).mark_bar(color="#1D4ED8", cornerRadiusEnd=4).encode(
         x=alt.X("STOCK REAL:Q", title="Unidades", axis=alt.Axis(format=",.0f")),
         y=alt.Y(f"{col_producto}:N", sort="-x", title=""),
@@ -203,7 +192,7 @@ with g4:
         .sum()
         .sort_values("STOCK REAL", ascending=False)
     )
-    
+
     barras_estado = alt.Chart(dist_estado).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
         x=alt.X("ESTADO:N", sort="-y", title="", axis=alt.Axis(labelAngle=0)),
         y=alt.Y("STOCK REAL:Q", title="Unidades", axis=alt.Axis(format=",.0f")),
@@ -234,13 +223,10 @@ detalle_sku = detalle_sku.rename(columns={
 
 detalle_sku = detalle_sku.sort_values(by="Stock Real", ascending=False)
 
-# 1. Calcular el subtotal dinámico según los filtros aplicados
 subtotal_tabla = detalle_sku["Stock Real"].sum()
 
-# 2. Mostrar recuadro resumen justo encima de la tabla
 st.info(f"**Subtotal Stock Real (según filtros aplicados):** {subtotal_tabla:,.0f} Unidades")
 
-# 3. Agregar fila de TOTAL al final de la tabla
 fila_total = pd.DataFrame([{
     "Tienda / CEDI": "TOTAL GENERAL",
     "SKU": "",
@@ -250,7 +236,6 @@ fila_total = pd.DataFrame([{
 
 detalle_con_total = pd.concat([detalle_sku, fila_total], ignore_index=True)
 
-# 4. Mostrar la tabla con formato
 st.dataframe(
     detalle_con_total,
     use_container_width=True,
@@ -258,5 +243,4 @@ st.dataframe(
     column_config={
         "Stock Real": st.column_config.NumberColumn("Stock Real", format="%d")
     }
-)
 )
