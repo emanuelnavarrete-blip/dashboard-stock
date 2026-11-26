@@ -40,12 +40,15 @@ def cargar_datos():
     maestro = pd.read_excel("MAESTRO 24.xlsx")
     maestro.columns = maestro.columns.astype(str).str.strip()
 
-    claves_sku = ["COD", "SKU", "MATERIAL", "ARTICULO", "ARTÍCULO", "ITEM", "CODIGO", "CÓDIGO"]
+    # Detectar columna SKU en STOCK
     posibles_sku_stock = [
-        c for c in stock.columns if any(k in c.upper() for k in ["COD", "SKU", "MATERIAL", "ARTICULO", "ARTÍCULO"])
+        c for c in stock.columns
+        if any(k in c.upper() for k in ["COD", "SKU", "MATERIAL", "ARTICULO", "ARTÍCULO"])
     ]
-    col_sku_stock = posibles_sku_stock[0] if posibles_sku_stock else "COD. PRODUCTO"
+    col_sku_stock = posibles_sku_stock[0] if posibles_sku_stock else stock.columns[0]
 
+    # Detectar columna SKU en MAESTRO
+    claves_sku = ["COD", "SKU", "MATERIAL", "ARTICULO", "ARTÍCULO", "ITEM", "CODIGO", "CÓDIGO"]
     posibles_sku_maestro = [
         c for c in maestro.columns if any(k in c.upper() for k in claves_sku)
     ]
@@ -57,29 +60,44 @@ def cargar_datos():
     if col_sku_maestro != col_sku_stock:
         maestro = maestro.rename(columns={col_sku_maestro: col_sku_stock})
 
-    posibles_ut = [c for c in maestro.columns if c.strip().upper() in ["UT", "U.T.", "UND TRANSPORTE", "UNIDAD TRANSPORTE"] or "UT" in c.strip().upper().split()]
-    col_ut = posibles_ut[0] if posibles_ut else "UT"
+    # Detectar columna UT en MAESTRO de forma segura
+    posibles_ut = [
+        c for c in maestro.columns
+        if "UT" in c.upper().replace(".", " ").split() or "UT" in c.upper()
+    ]
 
-    maestro[col_ut] = pd.to_numeric(maestro[col_ut], errors="coerce").fillna(1)
-    maestro_skus = maestro[[col_sku_stock, col_ut]].drop_duplicates(subset=[col_sku_stock])
+    if posibles_ut:
+        col_ut = posibles_ut[0]
+        maestro[col_ut] = pd.to_numeric(maestro[col_ut], errors="coerce").fillna(1)
+        maestro_skus = maestro[[col_sku_stock, col_ut]].drop_duplicates(subset=[col_sku_stock])
+        datos = pd.merge(stock, maestro_skus, on=col_sku_stock, how="left")
+        datos[col_ut] = pd.to_numeric(datos[col_ut], errors="coerce").fillna(1)
+    else:
+        col_ut = "_UT_DEFAULT"
+        datos = stock.copy()
+        datos[col_ut] = 1
 
-    datos = pd.merge(stock, maestro_skus, on=col_sku_stock, how="left")
-    datos[col_ut] = pd.to_numeric(datos[col_ut], errors="coerce").fillna(1)
-
+    # Detectar columna de stock base (usa STOCK TOTAL si existe, sino STOCK REAL)
     if "STOCK TOTAL" in datos.columns:
         col_stock_base = "STOCK TOTAL"
     elif "STOCK REAL" in datos.columns:
         col_stock_base = "STOCK REAL"
     else:
-        col_stock_base = [c for c in datos.columns if "STOCK" in c.upper()][0]
+        stock_cols = [c for c in datos.columns if "STOCK" in c.upper()]
+        col_stock_base = stock_cols[0] if stock_cols else datos.columns[-1]
 
-    cols_destino = [c for c in datos.columns if "DESTINO" in c.upper() or "CENTRO" in c.upper() or "TIPO" in c.upper()]
+    # Identificar registros de CEDI
+    cols_destino = [
+        c for c in datos.columns
+        if "DESTINO" in c.upper() or "CENTRO" in c.upper() or "TIPO" in c.upper()
+    ]
     es_cedi = pd.Series(False, index=datos.index)
     for c in cols_destino:
         es_cedi = es_cedi | datos[c].astype(str).str.upper().str.contains("CEDI", na=False)
 
     stock_num = pd.to_numeric(datos[col_stock_base], errors="coerce").fillna(0)
 
+    # Solo para CEDI: Stock * UT; para Tiendas/otros: dejar tal cual
     datos["STOCK_FINAL"] = stock_num
     datos.loc[es_cedi, "STOCK_FINAL"] = stock_num.loc[es_cedi] * datos.loc[es_cedi, col_ut]
 
