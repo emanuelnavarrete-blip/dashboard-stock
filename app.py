@@ -35,16 +35,21 @@ def cargar_datos():
         stock = pd.read_excel("STOCK REAL 26.xlsx", sheet_name="Stock")
     except Exception:
         stock = pd.read_excel("STOCK REAL 26.xlsx")
-    stock.columns = stock.columns.str.strip()
+    stock.columns = stock.columns.astype(str).str.strip()
 
     maestro = pd.read_excel("MAESTRO 24.xlsx")
-    maestro.columns = maestro.columns.str.strip()
+    maestro.columns = maestro.columns.astype(str).str.strip()
 
-    posibles_sku_stock = [c for c in stock.columns if "COD" in c.upper() or "SKU" in c.upper()]
+    claves_sku = ["COD", "SKU", "MATERIAL", "ARTICULO", "ARTÍCULO", "ITEM", "CODIGO", "CÓDIGO"]
+    posibles_sku_stock = [
+        c for c in stock.columns if any(k in c.upper() for k in ["COD", "SKU", "MATERIAL", "ARTICULO", "ARTÍCULO"])
+    ]
     col_sku_stock = posibles_sku_stock[0] if posibles_sku_stock else "COD. PRODUCTO"
 
-    posibles_sku_maestro = [c for c in maestro.columns if "COD" in c.upper() or "SKU" in c.upper()]
-    col_sku_maestro = posibles_sku_maestro[0] if posibles_sku_maestro else col_sku_stock
+    posibles_sku_maestro = [
+        c for c in maestro.columns if any(k in c.upper() for k in claves_sku)
+    ]
+    col_sku_maestro = posibles_sku_maestro[0] if posibles_sku_maestro else maestro.columns[0]
 
     stock[col_sku_stock] = stock[col_sku_stock].astype(str).str.strip()
     maestro[col_sku_maestro] = maestro[col_sku_maestro].astype(str).str.strip()
@@ -52,7 +57,9 @@ def cargar_datos():
     if col_sku_maestro != col_sku_stock:
         maestro = maestro.rename(columns={col_sku_maestro: col_sku_stock})
 
-    col_ut = [c for c in maestro.columns if c.strip().upper() == "UT"][0]
+    posibles_ut = [c for c in maestro.columns if c.strip().upper() in ["UT", "U.T.", "UND TRANSPORTE", "UNIDAD TRANSPORTE"] or "UT" in c.strip().upper().split()]
+    col_ut = posibles_ut[0] if posibles_ut else "UT"
+
     maestro[col_ut] = pd.to_numeric(maestro[col_ut], errors="coerce").fillna(1)
     maestro_skus = maestro[[col_sku_stock, col_ut]].drop_duplicates(subset=[col_sku_stock])
 
