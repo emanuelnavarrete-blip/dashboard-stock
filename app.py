@@ -259,3 +259,4 @@ st.dataframe(
         "Stock Real": st.column_config.NumberColumn("Stock Real", format="%d")
     }
 )
+)
