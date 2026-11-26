@@ -55,6 +55,17 @@ def cargar_datos():
     except Exception:
         datos = pd.read_excel(archivo)
     datos.columns = datos.columns.astype(str).str.strip()
+
+    # Detectar columna de stock (STOCK REAL, STOCK TOTAL o cualquiera con STOCK)
+    if "STOCK REAL" not in datos.columns:
+        candidatas_stock = [c for c in datos.columns if "STOCK" in c.upper()]
+        if candidatas_stock:
+            datos["STOCK REAL"] = pd.to_numeric(datos[candidatas_stock[0]], errors="coerce").fillna(0)
+        else:
+            datos["STOCK REAL"] = 0
+    else:
+        datos["STOCK REAL"] = pd.to_numeric(datos["STOCK REAL"], errors="coerce").fillna(0)
+
     return datos
 
 
